@@ -57,4 +57,8 @@ def run(*, api: NotionAPI, arg: str, last_listing: list[PageRef], console: _Cons
         console.print("[dim](nota vazia)[/dim]")
     matched = next((r for r in last_listing if r.id == page_id), None)
     if matched and matched.url:
-        console.print(f"[dim]{matched.url}[/dim]")
+        url = matched.url
+    else:
+        # Fallback: construct canonical Notion URL from the page id
+        url = f"https://www.notion.so/{page_id.replace('-', '')}"
+    console.print(f"[dim]{url}[/dim]")

@@ -17,10 +17,12 @@ def run(*, api: NotionAPI, database_id: str, query: str, console: _Console) -> l
     if not refs:
         console.print("[dim]sem resultados.[/dim]")
         return refs
+    from .list import _humanize  # reuse the same time formatter
     table = Table(show_header=True, header_style="bold", box=None, pad_edge=False)
     table.add_column("#", style="dim", width=3)
     table.add_column("Título")
+    table.add_column("Criado", style="dim")
     for i, r in enumerate(refs, start=1):
-        table.add_row(str(i), r.title)
+        table.add_row(str(i), r.title, _humanize(r.created_time))
     console.print(table)
     return refs
