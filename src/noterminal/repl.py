@@ -61,6 +61,19 @@ def _dispatch(state: State, line: str) -> bool:
 
     if cmd in ("exit", "quit"):
         return True
+    if cmd.isdigit():
+        if not state.last_listing:
+            state.console.print(
+                "[dim]rode `list` ou `search` antes de digitar um número.[/dim]"
+            )
+            return False
+        open_cmd.run(
+            api=state.api,
+            arg=cmd,
+            last_listing=state.last_listing,
+            console=state.console,
+        )
+        return False
     if cmd == "help":
         help_cmd.run(console=state.console)
         return False

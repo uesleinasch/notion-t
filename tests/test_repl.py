@@ -129,3 +129,34 @@ def test_repl_empty_line_continues_loop():
     repl.run(state, line_source=lambda prompt: next(lines))
     # If the empty/whitespace lines didn't continue, we'd exit before consuming "exit"
     # and the iter would have raised StopIteration instead of completing.
+
+
+def test_repl_numeric_shortcut_opens_note_from_listing():
+    api = MagicMock()
+    api.get_page_blocks.return_value = []
+    console = FakeConsole()
+    refs = [
+        PageRef(id="aaaa1111-2222-3333-4444-555566667777", title="A", url="u1"),
+        PageRef(id="bbbb1111-2222-3333-4444-555566667777", title="B", url="u2"),
+    ]
+    state = repl.State(api=api, config=_cfg(), console=console, last_listing=refs)
+
+    lines = iter(["2", "exit"])
+    repl.run(state, line_source=lambda prompt: next(lines))
+
+    api.get_page_blocks.assert_called_once_with(
+        "bbbb1111-2222-3333-4444-555566667777"
+    )
+
+
+def test_repl_numeric_shortcut_without_listing_shows_hint():
+    api = MagicMock()
+    console = FakeConsole()
+    state = repl.State(api=api, config=_cfg(), console=console, last_listing=[])
+
+    lines = iter(["3", "exit"])
+    repl.run(state, line_source=lambda prompt: next(lines))
+
+    flat = "\n".join(console.printed).lower()
+    assert "list" in flat or "search" in flat
+    api.get_page_blocks.assert_not_called()

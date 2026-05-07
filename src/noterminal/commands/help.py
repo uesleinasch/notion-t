@@ -12,6 +12,7 @@ HELP_TEXT = """[bold]Comandos disponíveis:[/bold]
   [cyan]new[/cyan]              cria uma nota nova (abre o editor)
   [cyan]list[/cyan] [N]         lista as N notas mais recentes (default 10)
   [cyan]open[/cyan] <id|N>      abre/visualiza uma nota (id, id-curto ou índice da última list)
+  [cyan]<N>[/cyan]              atalho: depois de `list` ou `search`, digite só o número
   [cyan]search[/cyan] <termo>   busca notas no database
   [cyan]setup[/cyan]            reconfigura token / database
   [cyan]help[/cyan]             mostra esta ajuda

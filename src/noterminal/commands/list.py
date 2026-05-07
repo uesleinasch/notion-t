@@ -47,4 +47,5 @@ def run(*, api: NotionAPI, database_id: str, page_size: int, console: _Console) 
     for i, r in enumerate(refs, start=1):
         table.add_row(str(i), r.title, _humanize(r.created_time))
     console.print(table)
+    console.print("[dim]digite o número da nota para abrir.[/dim]")
     return refs
