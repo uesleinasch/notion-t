@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import os
 import tomllib
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from pathlib import Path
 
 import tomli_w

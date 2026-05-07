@@ -69,3 +69,4 @@ def test_unknown_schema_version_returns_none(tmp_home):
         '[display]\nlist_size = 10\n'
     )
     assert config.load() is None
+    assert config.config_path().with_suffix(".toml.bak").exists()
