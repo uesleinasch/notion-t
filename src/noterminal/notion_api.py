@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
-from typing import Any, Iterable
+from typing import Any
 
 from notion_client import Client
 from notion_client.errors import APIResponseError, RequestTimeoutError
@@ -152,31 +152,43 @@ class NotionAPI:
             if not resp.get("has_more"):
                 break
             cursor = resp.get("next_cursor")
+            if not cursor:
+                break  # API contract violated; avoid infinite loop
         return all_blocks
 
     def search_in_database(self, *, database_id: str, query: str) -> list[PageRef]:
-        try:
-            resp = self._client.search(
-                query=query,
-                filter={"property": "object", "value": "page"},
-            )
-        except (APIResponseError, RequestTimeoutError) as e:
-            raise _translate(e) from e
         results: list[PageRef] = []
-        for p in resp.get("results", []):
-            parent = p.get("parent", {})
-            if parent.get("type") != "database_id":
-                continue
-            if parent.get("database_id") != database_id:
-                continue
-            results.append(
-                PageRef(
-                    id=p["id"],
-                    title=_extract_title(p.get("properties", {})),
-                    url=p.get("url", ""),
-                    created_time=p.get("created_time", ""),
+        cursor: str | None = None
+        while True:
+            try:
+                kwargs: dict[str, Any] = {
+                    "query": query,
+                    "filter": {"property": "object", "value": "page"},
+                }
+                if cursor:
+                    kwargs["start_cursor"] = cursor
+                resp = self._client.search(**kwargs)
+            except (APIResponseError, RequestTimeoutError) as e:
+                raise _translate(e) from e
+            for p in resp.get("results", []):
+                parent = p.get("parent", {})
+                if parent.get("type") != "database_id":
+                    continue
+                if parent.get("database_id") != database_id:
+                    continue
+                results.append(
+                    PageRef(
+                        id=p["id"],
+                        title=_extract_title(p.get("properties", {})),
+                        url=p.get("url", ""),
+                        created_time=p.get("created_time", ""),
+                    )
                 )
-            )
+            if not resp.get("has_more"):
+                break
+            cursor = resp.get("next_cursor")
+            if not cursor:
+                break
         return results
 
     def with_retry(self, fn, *, attempts: int = 3, base_delay: float = 0.5):
@@ -187,6 +199,7 @@ class NotionAPI:
                 return fn()
             except RateLimitError as e:
                 last = e
-                time.sleep(base_delay * (2 ** i))
+                if i < attempts - 1:
+                    time.sleep(base_delay * (2 ** i))
         assert last is not None
         raise last

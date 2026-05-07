@@ -180,3 +180,45 @@ def test_timeout_maps_to_network_error():
     api = make_api(client)
     with pytest.raises(NetworkError):
         api.validate_token()
+
+
+def test_with_retry_returns_immediately_on_success(monkeypatch):
+    monkeypatch.setattr(notion_api.time, "sleep", lambda *_: None)
+    api = make_api(MagicMock())
+    calls = {"n": 0}
+
+    def fn():
+        calls["n"] += 1
+        return "ok"
+
+    assert api.with_retry(fn) == "ok"
+    assert calls["n"] == 1
+
+
+def test_with_retry_retries_on_rate_limit_then_succeeds(monkeypatch):
+    monkeypatch.setattr(notion_api.time, "sleep", lambda *_: None)
+    api = make_api(MagicMock())
+    calls = {"n": 0}
+
+    def fn():
+        calls["n"] += 1
+        if calls["n"] < 2:
+            raise RateLimitError("slow down")
+        return "ok"
+
+    assert api.with_retry(fn, attempts=3, base_delay=0.0) == "ok"
+    assert calls["n"] == 2
+
+
+def test_with_retry_exhausts_attempts_and_reraises(monkeypatch):
+    monkeypatch.setattr(notion_api.time, "sleep", lambda *_: None)
+    api = make_api(MagicMock())
+    calls = {"n": 0}
+
+    def fn():
+        calls["n"] += 1
+        raise RateLimitError("nope")
+
+    with pytest.raises(RateLimitError):
+        api.with_retry(fn, attempts=3, base_delay=0.0)
+    assert calls["n"] == 3
