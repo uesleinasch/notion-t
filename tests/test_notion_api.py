@@ -118,6 +118,63 @@ def test_create_page_caches_title_property_lookup():
     assert client.databases.retrieve.call_count == 1
 
 
+def test_create_page_populates_date_property_when_present():
+    client = MagicMock()
+    client.databases.retrieve.return_value = {
+        "properties": {
+            "Title": {"type": "title"},
+            "Criado": {"type": "date"},
+        }
+    }
+    client.pages.create.return_value = {"id": "p1", "url": "u"}
+    api = make_api(client)
+
+    api.create_page(database_id="db1", title="x", blocks=[])
+
+    args = client.pages.create.call_args.kwargs
+    assert "Criado" in args["properties"]
+    date_value = args["properties"]["Criado"]["date"]
+    assert "start" in date_value
+    # ISO 8601 with timezone offset
+    assert "T" in date_value["start"] and ("+" in date_value["start"] or "Z" in date_value["start"])
+
+
+def test_create_page_skips_unrecognized_date_property_names():
+    """Date properties with unrelated names (e.g. 'Due') are not auto-filled."""
+    client = MagicMock()
+    client.databases.retrieve.return_value = {
+        "properties": {
+            "Title": {"type": "title"},
+            "Due": {"type": "date"},
+        }
+    }
+    client.pages.create.return_value = {"id": "p1", "url": "u"}
+    api = make_api(client)
+
+    api.create_page(database_id="db1", title="x", blocks=[])
+
+    args = client.pages.create.call_args.kwargs
+    assert "Due" not in args["properties"]
+
+
+def test_create_page_skips_created_time_property():
+    """Notion auto-fills `created_time` props; we must not try to set them."""
+    client = MagicMock()
+    client.databases.retrieve.return_value = {
+        "properties": {
+            "Title": {"type": "title"},
+            "Created": {"type": "created_time"},
+        }
+    }
+    client.pages.create.return_value = {"id": "p1", "url": "u"}
+    api = make_api(client)
+
+    api.create_page(database_id="db1", title="x", blocks=[])
+
+    args = client.pages.create.call_args.kwargs
+    assert "Created" not in args["properties"]
+
+
 def test_create_page_handles_multi_source_database():
     """New Notion DBs return data_sources[] with no top-level properties."""
     client = MagicMock()

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Any
 
 from notion_client import Client
@@ -55,6 +56,25 @@ class _DBMeta:
     is_multi_source: bool
     data_source_id: str | None  # only set if multi-source
     title_property: str
+    date_property: str | None  # user-fillable creation date, if database has one
+
+
+_CREATED_DATE_NAMES = {"created", "criado", "data", "date", "created at", "created time"}
+
+
+def _find_creation_date_prop(properties: dict[str, Any]) -> str | None:
+    """Return a property name suitable for the creation date, or None.
+
+    Only matches properties of type `date` (we never overwrite `created_time`,
+    which Notion auto-populates and is read-only). Match is conservative:
+    name must be in `_CREATED_DATE_NAMES` (case-insensitive).
+    """
+    for name, prop in properties.items():
+        if not isinstance(prop, dict) or prop.get("type") != "date":
+            continue
+        if name.strip().lower() in _CREATED_DATE_NAMES:
+            return name
+    return None
 
 
 def _extract_title(properties: dict[str, Any]) -> str:
@@ -121,7 +141,12 @@ class NotionAPI:
         props = db.get("properties") or {}
         title_name = self._find_title_prop(props)
         if title_name:
-            meta = _DBMeta(is_multi_source=False, data_source_id=None, title_property=title_name)
+            meta = _DBMeta(
+                is_multi_source=False,
+                data_source_id=None,
+                title_property=title_name,
+                date_property=_find_creation_date_prop(props),
+            )
             self._db_meta_cache[database_id] = meta
             return meta
 
@@ -143,6 +168,7 @@ class NotionAPI:
                         is_multi_source=True,
                         data_source_id=ds_id,
                         title_property=title_name,
+                        date_property=_find_creation_date_prop(ds_props),
                     )
                     self._db_meta_cache[database_id] = meta
                     return meta
@@ -188,14 +214,18 @@ class NotionAPI:
             if meta.is_multi_source and meta.data_source_id
             else {"database_id": database_id}
         )
+        properties: dict[str, Any] = {
+            meta.title_property: {
+                "title": [{"type": "text", "text": {"content": title}}]
+            }
+        }
+        if meta.date_property:
+            now_iso = datetime.now(timezone.utc).isoformat(timespec="seconds")
+            properties[meta.date_property] = {"date": {"start": now_iso}}
         try:
             resp = self._client.pages.create(
                 parent=parent,
-                properties={
-                    meta.title_property: {
-                        "title": [{"type": "text", "text": {"content": title}}]
-                    }
-                },
+                properties=properties,
                 children=blocks,
             )
         except (APIResponseError, RequestTimeoutError) as e:
