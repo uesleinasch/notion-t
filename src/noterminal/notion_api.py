@@ -281,6 +281,13 @@ class NotionAPI:
             for p in resp.get("results", [])
         ]
 
+    def delete_page(self, page_id: str) -> None:
+        """Archive a page (Notion's equivalent of delete — recoverable via trash)."""
+        try:
+            self._client.pages.update(page_id=page_id, archived=True)
+        except (APIResponseError, RequestTimeoutError) as e:
+            raise _translate(e) from e
+
     def get_page_metadata(self, page_id: str) -> tuple[str, str]:
         """Return (title, url) for a page."""
         try:

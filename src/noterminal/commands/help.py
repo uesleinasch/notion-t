@@ -14,6 +14,7 @@ HELP_TEXT = """[bold]Comandos disponíveis:[/bold]
   [cyan]open[/cyan] <id|N>      abre/visualiza uma nota (id, id-curto ou índice da última list)
   [cyan]<N>[/cyan]              atalho: depois de `list` ou `search`, digite só o número
   [cyan]edit[/cyan] <id|N>      abre a nota no $EDITOR para edição
+  [cyan]delete[/cyan] <id|N>    arquiva uma nota (recuperável na lixeira do Notion)
   [cyan]search[/cyan] <termo>   busca notas no database
   [cyan]setup[/cyan]            reconfigura token / database
   [cyan]help[/cyan]             mostra esta ajuda

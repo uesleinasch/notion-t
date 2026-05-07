@@ -474,6 +474,13 @@ def test_timeout_maps_to_network_error():
         api.validate_token()
 
 
+def test_delete_page_archives_via_pages_update():
+    client = MagicMock()
+    api = make_api(client)
+    api.delete_page("p1")
+    client.pages.update.assert_called_once_with(page_id="p1", archived=True)
+
+
 def test_get_page_metadata_returns_title_and_url():
     client = MagicMock()
     client.pages.retrieve.return_value = {

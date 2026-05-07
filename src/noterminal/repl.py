@@ -5,6 +5,7 @@ import shlex
 from dataclasses import dataclass, field
 from typing import Callable, Protocol
 
+from .commands import delete as delete_cmd
 from .commands import edit as edit_cmd
 from .commands import help as help_cmd
 from .commands import list as list_cmd
@@ -128,6 +129,23 @@ def _dispatch(state: State, line: str) -> bool:
             )
         except NotionError as e:
             state.console.print(f"[red]erro:[/red] {e}")
+        return False
+    if cmd in ("delete", "rm"):
+        if not args:
+            state.console.print("uso: [cyan]delete <id|N>[/cyan]")
+            return False
+        try:
+            deleted_id = delete_cmd.run(
+                api=state.api,
+                arg=args[0],
+                last_listing=state.last_listing,
+                console=state.console,
+            )
+        except NotionError as e:
+            state.console.print(f"[red]erro:[/red] {e}")
+            return False
+        if deleted_id:
+            state.last_listing = [r for r in state.last_listing if r.id != deleted_id]
         return False
     if cmd == "search":
         if not args:
