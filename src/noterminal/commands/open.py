@@ -5,6 +5,7 @@ import re
 from typing import Protocol
 
 from rich.markdown import Markdown
+from rich.rule import Rule
 
 from .. import markdown as md
 from ..notion_api import NotionAPI, NotionError, PageRef
@@ -50,15 +51,23 @@ def run(*, api: NotionAPI, arg: str, last_listing: list[PageRef], console: _Cons
         console.print(f"[red]erro ao abrir nota:[/red] {e}")
         return
 
-    text = md.from_blocks(blocks)
-    if text.strip():
-        console.print(Markdown(text))
-    else:
-        console.print("[dim](nota vazia)[/dim]")
     matched = next((r for r in last_listing if r.id == page_id), None)
-    if matched and matched.url:
-        url = matched.url
-    else:
-        # Fallback: construct canonical Notion URL from the page id
-        url = f"https://www.notion.so/{page_id.replace('-', '')}"
+    body = md.from_blocks(blocks)
+
+    parts: list[str] = []
+    if matched and matched.title:
+        parts.append(f"# {matched.title}")
+    if body.strip():
+        parts.append(body)
+    elif not parts:
+        parts.append("*(nota vazia)*")
+
+    console.print(Markdown("\n\n".join(parts)))
+    console.print(Rule(style="dim"))
+
+    url = (
+        matched.url
+        if matched and matched.url
+        else f"https://www.notion.so/{page_id.replace('-', '')}"
+    )
     console.print(f"[dim]{url}[/dim]")
