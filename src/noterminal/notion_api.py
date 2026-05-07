@@ -50,9 +50,13 @@ class CreatedPage:
 
 
 def _extract_title(properties: dict[str, Any]) -> str:
-    title_prop = properties.get("Title") or properties.get("title") or {}
-    parts = title_prop.get("title", [])
-    return "".join(p.get("plain_text", "") for p in parts) or "(sem título)"
+    for prop in properties.values():
+        if isinstance(prop, dict) and prop.get("type") == "title":
+            parts = prop.get("title", [])
+            text = "".join(p.get("plain_text", "") for p in parts)
+            if text:
+                return text
+    return "(sem título)"
 
 
 def _translate(err: Exception) -> NotionError:
@@ -80,6 +84,21 @@ class NotionAPI:
                 raise ValueError("either token or client must be provided")
             client = Client(auth=token)
         self._client = client
+        self._title_property_cache: dict[str, str] = {}
+
+    def _resolve_title_property(self, database_id: str) -> str:
+        cached = self._title_property_cache.get(database_id)
+        if cached:
+            return cached
+        try:
+            db = self._client.databases.retrieve(database_id=database_id)
+        except (APIResponseError, RequestTimeoutError) as e:
+            raise _translate(e) from e
+        for name, prop in (db.get("properties") or {}).items():
+            if isinstance(prop, dict) and prop.get("type") == "title":
+                self._title_property_cache[database_id] = name
+                return name
+        raise NotionError(f"database {database_id} não tem propriedade do tipo 'title'")
 
     def validate_token(self) -> str:
         try:
@@ -104,11 +123,12 @@ class NotionAPI:
         return resp["id"]
 
     def create_page(self, *, database_id: str, title: str, blocks: list[dict]) -> CreatedPage:
+        title_prop = self._resolve_title_property(database_id)
         try:
             resp = self._client.pages.create(
                 parent={"database_id": database_id},
                 properties={
-                    "Title": {
+                    title_prop: {
                         "title": [{"type": "text", "text": {"content": title}}]
                     }
                 },
@@ -123,7 +143,7 @@ class NotionAPI:
             resp = self._client.databases.query(
                 database_id=database_id,
                 page_size=page_size,
-                sorts=[{"property": "Created", "direction": "descending"}],
+                sorts=[{"timestamp": "created_time", "direction": "descending"}],
             )
         except (APIResponseError, RequestTimeoutError) as e:
             raise _translate(e) from e

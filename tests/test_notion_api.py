@@ -62,6 +62,9 @@ def test_create_database_passes_correct_schema():
 
 def test_create_page_sends_title_and_blocks():
     client = MagicMock()
+    client.databases.retrieve.return_value = {
+        "properties": {"Title": {"type": "title"}}
+    }
     client.pages.create.return_value = {
         "id": "page-1",
         "url": "https://notion.so/page-1",
@@ -79,6 +82,52 @@ def test_create_page_sends_title_and_blocks():
     assert args["children"] == blocks
 
 
+def test_create_page_uses_actual_title_property_name():
+    client = MagicMock()
+    client.databases.retrieve.return_value = {
+        "properties": {
+            "Name": {"type": "title"},
+            "Status": {"type": "select"},
+        }
+    }
+    client.pages.create.return_value = {
+        "id": "p1",
+        "url": "https://notion.so/p1",
+    }
+    api = make_api(client)
+
+    api.create_page(database_id="db1", title="hello", blocks=[])
+
+    args = client.pages.create.call_args.kwargs
+    assert "Name" in args["properties"]
+    assert "Title" not in args["properties"]
+    assert args["properties"]["Name"]["title"][0]["text"]["content"] == "hello"
+
+
+def test_create_page_caches_title_property_lookup():
+    client = MagicMock()
+    client.databases.retrieve.return_value = {
+        "properties": {"Tarefa": {"type": "title"}}
+    }
+    client.pages.create.return_value = {"id": "p1", "url": "u"}
+    api = make_api(client)
+
+    api.create_page(database_id="db1", title="a", blocks=[])
+    api.create_page(database_id="db1", title="b", blocks=[])
+
+    assert client.databases.retrieve.call_count == 1
+
+
+def test_create_page_raises_when_database_has_no_title_property():
+    client = MagicMock()
+    client.databases.retrieve.return_value = {
+        "properties": {"Status": {"type": "select"}}
+    }
+    api = make_api(client)
+    with pytest.raises(NotionError):
+        api.create_page(database_id="db1", title="x", blocks=[])
+
+
 def test_query_database_returns_page_refs():
     client = MagicMock()
     client.databases.query.return_value = {
@@ -88,7 +137,7 @@ def test_query_database_returns_page_refs():
                 "url": "https://notion.so/p1",
                 "created_time": "2026-05-07T10:00:00Z",
                 "properties": {
-                    "Title": {"title": [{"plain_text": "Note A"}]},
+                    "Title": {"type": "title", "title": [{"plain_text": "Note A"}]},
                 },
             }
         ]
@@ -105,8 +154,29 @@ def test_query_database_returns_page_refs():
     assert args["database_id"] == "db1"
     assert args["page_size"] == 10
     assert args["sorts"] == [
-        {"property": "Created", "direction": "descending"}
+        {"timestamp": "created_time", "direction": "descending"}
     ]
+
+
+def test_extract_title_finds_property_by_type_not_name():
+    """A DB with title prop named 'Tarefa' (not 'Title') should still resolve."""
+    client = MagicMock()
+    client.databases.query.return_value = {
+        "results": [
+            {
+                "id": "p1",
+                "url": "u",
+                "created_time": "2026-05-07T10:00:00Z",
+                "properties": {
+                    "Status": {"type": "select", "select": {"name": "todo"}},
+                    "Tarefa": {"type": "title", "title": [{"plain_text": "do thing"}]},
+                },
+            }
+        ]
+    }
+    api = make_api(client)
+    refs = api.list_recent_pages(database_id="db1")
+    assert refs[0].title == "do thing"
 
 
 def test_get_page_blocks_paginates():
@@ -132,14 +202,14 @@ def test_search_filters_by_database():
                 "object": "page",
                 "url": "https://notion.so/p1",
                 "parent": {"type": "database_id", "database_id": "db1"},
-                "properties": {"Title": {"title": [{"plain_text": "hit"}]}},
+                "properties": {"Title": {"type": "title", "title": [{"plain_text": "hit"}]}},
             },
             {
                 "id": "p2",
                 "object": "page",
                 "url": "https://notion.so/p2",
                 "parent": {"type": "database_id", "database_id": "OTHER"},
-                "properties": {"Title": {"title": [{"plain_text": "miss"}]}},
+                "properties": {"Title": {"type": "title", "title": [{"plain_text": "miss"}]}},
             },
         ]
     }
