@@ -281,6 +281,62 @@ class NotionAPI:
             for p in resp.get("results", [])
         ]
 
+    def get_page_metadata(self, page_id: str) -> tuple[str, str]:
+        """Return (title, url) for a page."""
+        try:
+            page = self._client.pages.retrieve(page_id=page_id)
+        except (APIResponseError, RequestTimeoutError) as e:
+            raise _translate(e) from e
+        return _extract_title(page.get("properties") or {}), page.get("url", "")
+
+    def update_page(self, *, page_id: str, title: str, blocks: list[dict]) -> None:
+        """Update a page's title and replace its body blocks.
+
+        Block replacement is non-atomic: existing children are deleted (Notion
+        archives them) and the new blocks are appended. If a delete fails
+        partway through, earlier deletes have already happened — caller should
+        preserve the source markdown until this returns successfully.
+        """
+        try:
+            page = self._client.pages.retrieve(page_id=page_id)
+        except (APIResponseError, RequestTimeoutError) as e:
+            raise _translate(e) from e
+        title_prop: str | None = None
+        for name, prop in (page.get("properties") or {}).items():
+            if isinstance(prop, dict) and prop.get("type") == "title":
+                title_prop = name
+                break
+        if not title_prop:
+            raise NotionError(f"page {page_id} não tem propriedade do tipo 'title'")
+
+        try:
+            self._client.pages.update(
+                page_id=page_id,
+                properties={
+                    title_prop: {
+                        "title": [{"type": "text", "text": {"content": title}}]
+                    }
+                },
+            )
+        except (APIResponseError, RequestTimeoutError) as e:
+            raise _translate(e) from e
+
+        existing = self.get_page_blocks(page_id)
+        for blk in existing:
+            blk_id = blk.get("id")
+            if not blk_id:
+                continue
+            try:
+                self._client.blocks.delete(block_id=blk_id)
+            except (APIResponseError, RequestTimeoutError) as e:
+                raise _translate(e) from e
+
+        if blocks:
+            try:
+                self._client.blocks.children.append(block_id=page_id, children=blocks)
+            except (APIResponseError, RequestTimeoutError) as e:
+                raise _translate(e) from e
+
     def get_page_blocks(self, page_id: str) -> list[dict]:
         all_blocks: list[dict] = []
         cursor: str | None = None

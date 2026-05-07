@@ -5,6 +5,7 @@ import shlex
 from dataclasses import dataclass, field
 from typing import Callable, Protocol
 
+from .commands import edit as edit_cmd
 from .commands import help as help_cmd
 from .commands import list as list_cmd
 from .commands import new as new_cmd
@@ -112,6 +113,21 @@ def _dispatch(state: State, line: str) -> bool:
             last_listing=state.last_listing,
             console=state.console,
         )
+        return False
+    if cmd == "edit":
+        if not args:
+            state.console.print("uso: [cyan]edit <id|N>[/cyan]")
+            return False
+        try:
+            edit_cmd.run(
+                api=state.api,
+                arg=args[0],
+                last_listing=state.last_listing,
+                editor_command=state.config.editor_command,
+                console=state.console,
+            )
+        except NotionError as e:
+            state.console.print(f"[red]erro:[/red] {e}")
         return False
     if cmd == "search":
         if not args:

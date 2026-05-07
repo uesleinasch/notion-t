@@ -474,6 +474,58 @@ def test_timeout_maps_to_network_error():
         api.validate_token()
 
 
+def test_get_page_metadata_returns_title_and_url():
+    client = MagicMock()
+    client.pages.retrieve.return_value = {
+        "url": "https://notion.so/p1",
+        "properties": {"Name": {"type": "title", "title": [{"plain_text": "hello"}]}},
+    }
+    api = make_api(client)
+    title, url = api.get_page_metadata("p1")
+    assert title == "hello"
+    assert url == "https://notion.so/p1"
+
+
+def test_update_page_updates_title_replaces_blocks():
+    client = MagicMock()
+    client.pages.retrieve.return_value = {
+        "properties": {"Name": {"type": "title", "title": [{"plain_text": "old"}]}}
+    }
+    client.blocks.children.list.return_value = {
+        "results": [{"id": "b1"}, {"id": "b2"}],
+        "has_more": False,
+    }
+    api = make_api(client)
+
+    new_blocks = [
+        {"object": "block", "type": "paragraph", "paragraph": {"rich_text": []}}
+    ]
+    api.update_page(page_id="p1", title="new", blocks=new_blocks)
+
+    # Title updated under the actual property name
+    update_args = client.pages.update.call_args.kwargs
+    assert "Name" in update_args["properties"]
+    assert update_args["properties"]["Name"]["title"][0]["text"]["content"] == "new"
+    # Existing blocks deleted
+    deleted_ids = [c.kwargs["block_id"] for c in client.blocks.delete.call_args_list]
+    assert deleted_ids == ["b1", "b2"]
+    # New blocks appended
+    append_args = client.blocks.children.append.call_args.kwargs
+    assert append_args["block_id"] == "p1"
+    assert append_args["children"] == new_blocks
+
+
+def test_update_page_skips_append_when_blocks_empty():
+    client = MagicMock()
+    client.pages.retrieve.return_value = {
+        "properties": {"Title": {"type": "title"}}
+    }
+    client.blocks.children.list.return_value = {"results": [], "has_more": False}
+    api = make_api(client)
+    api.update_page(page_id="p1", title="t", blocks=[])
+    client.blocks.children.append.assert_not_called()
+
+
 def test_with_retry_returns_immediately_on_success(monkeypatch):
     monkeypatch.setattr(notion_api.time, "sleep", lambda *_: None)
     api = make_api(MagicMock())
