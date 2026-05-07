@@ -94,11 +94,33 @@ class NotionAPI:
             db = self._client.databases.retrieve(database_id=database_id)
         except (APIResponseError, RequestTimeoutError) as e:
             raise _translate(e) from e
-        for name, prop in (db.get("properties") or {}).items():
+        # Search top-level properties (classic database response).
+        props = db.get("properties") or {}
+        for name, prop in props.items():
             if isinstance(prop, dict) and prop.get("type") == "title":
                 self._title_property_cache[database_id] = name
                 return name
-        raise NotionError(f"database {database_id} não tem propriedade do tipo 'title'")
+        # Notion's newer "data source" responses nest properties under
+        # data_sources[*].properties. Walk that structure as a fallback.
+        for ds in db.get("data_sources") or []:
+            ds_props = (ds or {}).get("properties") or {}
+            for name, prop in ds_props.items():
+                if isinstance(prop, dict) and prop.get("type") == "title":
+                    self._title_property_cache[database_id] = name
+                    return name
+        # No title property found anywhere — surface what we DID see so the
+        # user can tell whether they pasted a page URL by mistake or hit an
+        # unexpected schema.
+        kind = db.get("object", "?")
+        prop_summary = ", ".join(
+            f"{n}({(p or {}).get('type', '?')})" for n, p in props.items()
+        ) or "(nenhuma)"
+        raise NotionError(
+            f"database {database_id} não tem propriedade do tipo 'title'. "
+            f"objeto retornado: {kind}; propriedades: [{prop_summary}]. "
+            f"verifique se você colou a URL do database (não de uma página) "
+            f"em `setup`."
+        )
 
     def validate_token(self) -> str:
         try:
