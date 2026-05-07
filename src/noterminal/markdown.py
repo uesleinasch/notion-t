@@ -1,9 +1,14 @@
 """Markdown <-> Notion blocks for the v1 feature set.
 
-Supports: paragraphs, headings (#/##/###), bulleted (-) and numbered (1.) lists,
-fenced code blocks (```), and inline **bold**, *italic*, `code`, [text](url).
-Anything outside this subset falls back to a plain paragraph; the converter
-never raises on malformed input.
+Supports: paragraphs, headings (#/##/###), bulleted lists (- or *), numbered
+lists (1.), fenced code blocks (```), and inline **bold**, *italic*, `code`,
+[text](url). Anything outside this subset falls back to a plain paragraph; the
+converter never raises on malformed input (non-string inputs return empty).
+
+`from_blocks` is a lossy display path used by the `open` command — it emits
+plain text only, dropping inline annotations and not preserving exact spacing
+between blocks. Round-tripping `to_blocks(from_blocks(x))` is stable but
+`from_blocks(to_blocks(md))` may differ from `md`.
 """
 from __future__ import annotations
 
@@ -83,7 +88,7 @@ def _code_block(language: str, content: str) -> dict:
 
 
 def to_blocks(md: str) -> list[dict]:
-    if not md.strip():
+    if not isinstance(md, str) or not md.strip():
         return []
     lines = md.splitlines()
     blocks: list[dict] = []
@@ -170,6 +175,8 @@ def from_blocks(blocks: list[dict]) -> str:
 
 def split_title(md: str) -> tuple[str, str]:
     """Return (title, body). Title is the first '# ...' heading or the first non-blank line."""
+    if not isinstance(md, str):
+        return "", ""
     lines = md.splitlines()
     title = ""
     title_idx: int | None = None

@@ -127,3 +127,12 @@ def test_extract_title_truncates_to_max_length():
     md = "# " + "x" * 300
     title, _ = markdown.split_title(md)
     assert len(title) <= 200
+
+
+def test_to_blocks_returns_empty_for_non_string():
+    assert markdown.to_blocks(None) == []  # type: ignore[arg-type]
+    assert markdown.to_blocks(123) == []  # type: ignore[arg-type]
+
+
+def test_split_title_safe_for_non_string():
+    assert markdown.split_title(None) == ("", "")  # type: ignore[arg-type]
