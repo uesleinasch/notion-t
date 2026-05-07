@@ -41,7 +41,10 @@ def _default_line_source(prompt: str) -> str:
         histfile = os.path.expanduser("~/.local/share/noterminal/history")
         os.makedirs(os.path.dirname(histfile), exist_ok=True)
         completer = WordCompleter(
-            ["new", "list", "open", "search", "setup", "help", "exit", "quit"],
+            [
+                "new", "list", "open", "edit", "delete", "rm",
+                "search", "setup", "clear", "cls", "help", "exit", "quit",
+            ],
             ignore_case=True,
         )
         _default_line_source._session = PromptSession(
@@ -63,6 +66,14 @@ def _dispatch(state: State, line: str) -> bool:
 
     if cmd in ("exit", "quit"):
         return True
+    if cmd in ("clear", "cls"):
+        clear = getattr(state.console, "clear", None)
+        if callable(clear):
+            clear()
+        else:
+            # Fallback for consoles that don't expose `clear`: ANSI clear-screen + home.
+            state.console.print("\x1b[2J\x1b[H", end="")
+        return False
     if cmd.isdigit():
         if not state.last_listing:
             state.console.print(

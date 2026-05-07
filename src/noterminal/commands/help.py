@@ -16,6 +16,7 @@ HELP_TEXT = """[bold]Comandos disponíveis:[/bold]
   [cyan]edit[/cyan] <id|N>      abre a nota no $EDITOR para edição
   [cyan]delete[/cyan] <id|N>    arquiva uma nota (recuperável na lixeira do Notion)
   [cyan]search[/cyan] <termo>   busca notas no database
+  [cyan]clear[/cyan] / [cyan]cls[/cyan]      limpa a tela
   [cyan]setup[/cyan]            reconfigura token / database
   [cyan]help[/cyan]             mostra esta ajuda
   [cyan]exit[/cyan] / [cyan]quit[/cyan] / Ctrl-D   sai do notion-t

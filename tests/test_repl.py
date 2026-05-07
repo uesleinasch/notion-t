@@ -149,6 +149,37 @@ def test_repl_numeric_shortcut_opens_note_from_listing():
     )
 
 
+def test_repl_clear_calls_console_clear():
+    api = MagicMock()
+
+    class ConsoleWithClear:
+        def __init__(self):
+            self.printed = []
+            self.cleared = 0
+        def print(self, *a, **k):
+            self.printed.append(" ".join(str(x) for x in a))
+        def clear(self):
+            self.cleared += 1
+
+    console = ConsoleWithClear()
+    state = repl.State(api=api, config=_cfg(), console=console, last_listing=[])
+
+    lines = iter(["clear", "cls", "exit"])
+    repl.run(state, line_source=lambda prompt: next(lines))
+    assert console.cleared == 2
+
+
+def test_repl_clear_falls_back_to_ansi_when_console_has_no_clear():
+    api = MagicMock()
+    console = FakeConsole()  # no .clear() method
+    state = repl.State(api=api, config=_cfg(), console=console, last_listing=[])
+
+    lines = iter(["clear", "exit"])
+    repl.run(state, line_source=lambda prompt: next(lines))
+    flat = "".join(console.printed)
+    assert "\x1b[2J" in flat
+
+
 def test_repl_numeric_shortcut_without_listing_shows_hint():
     api = MagicMock()
     console = FakeConsole()
