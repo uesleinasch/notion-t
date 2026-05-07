@@ -49,6 +49,14 @@ class CreatedPage:
     url: str
 
 
+@dataclass(frozen=True)
+class _DBMeta:
+    """Resolved schema info for a database, tolerant of multi-source layout."""
+    is_multi_source: bool
+    data_source_id: str | None  # only set if multi-source
+    title_property: str
+
+
 def _extract_title(properties: dict[str, Any]) -> str:
     for prop in properties.values():
         if isinstance(prop, dict) and prop.get("type") == "title":
@@ -84,37 +92,66 @@ class NotionAPI:
                 raise ValueError("either token or client must be provided")
             client = Client(auth=token)
         self._client = client
-        self._title_property_cache: dict[str, str] = {}
+        self._db_meta_cache: dict[str, _DBMeta] = {}
 
-    def _resolve_title_property(self, database_id: str) -> str:
-        cached = self._title_property_cache.get(database_id)
+    def _find_title_prop(self, properties: dict[str, Any]) -> str | None:
+        for name, prop in properties.items():
+            if isinstance(prop, dict) and prop.get("type") == "title":
+                return name
+        return None
+
+    def _resolve_db_meta(self, database_id: str) -> _DBMeta:
+        """Resolve the title property name and detect multi-source layout.
+
+        Notion has two database shapes in flight:
+        - Classic: `databases.retrieve` returns properties inline
+        - Multi-source: top-level has `data_sources: [{id, name}]` and
+          properties live on each data source (fetched via the data sources
+          endpoint). New databases default to this layout.
+        """
+        cached = self._db_meta_cache.get(database_id)
         if cached:
             return cached
         try:
             db = self._client.databases.retrieve(database_id=database_id)
         except (APIResponseError, RequestTimeoutError) as e:
             raise _translate(e) from e
-        # Search top-level properties (classic database response).
+
+        # Classic layout: properties at the top level.
         props = db.get("properties") or {}
-        for name, prop in props.items():
-            if isinstance(prop, dict) and prop.get("type") == "title":
-                self._title_property_cache[database_id] = name
-                return name
-        # Notion's newer "data source" responses nest properties under
-        # data_sources[*].properties. Walk that structure as a fallback.
-        for ds in db.get("data_sources") or []:
-            ds_props = (ds or {}).get("properties") or {}
-            for name, prop in ds_props.items():
-                if isinstance(prop, dict) and prop.get("type") == "title":
-                    self._title_property_cache[database_id] = name
-                    return name
-        # No title property found anywhere — surface what we DID see so the
-        # user can tell whether they pasted a page URL by mistake or hit an
-        # unexpected schema.
+        title_name = self._find_title_prop(props)
+        if title_name:
+            meta = _DBMeta(is_multi_source=False, data_source_id=None, title_property=title_name)
+            self._db_meta_cache[database_id] = meta
+            return meta
+
+        # Multi-source layout: fetch the first data source for its schema.
+        data_sources = db.get("data_sources") or []
+        if data_sources:
+            ds_id = data_sources[0].get("id")
+            if ds_id:
+                try:
+                    ds = self._client.request(
+                        path=f"data_sources/{ds_id}", method="GET"
+                    )
+                except (APIResponseError, RequestTimeoutError) as e:
+                    raise _translate(e) from e
+                ds_props = (ds or {}).get("properties") or {}
+                title_name = self._find_title_prop(ds_props)
+                if title_name:
+                    meta = _DBMeta(
+                        is_multi_source=True,
+                        data_source_id=ds_id,
+                        title_property=title_name,
+                    )
+                    self._db_meta_cache[database_id] = meta
+                    return meta
+
         kind = db.get("object", "?")
-        prop_summary = ", ".join(
-            f"{n}({(p or {}).get('type', '?')})" for n, p in props.items()
-        ) or "(nenhuma)"
+        prop_summary = (
+            ", ".join(f"{n}({(p or {}).get('type', '?')})" for n, p in props.items())
+            or "(nenhuma)"
+        )
         raise NotionError(
             f"database {database_id} não tem propriedade do tipo 'title'. "
             f"objeto retornado: {kind}; propriedades: [{prop_summary}]. "
@@ -145,12 +182,17 @@ class NotionAPI:
         return resp["id"]
 
     def create_page(self, *, database_id: str, title: str, blocks: list[dict]) -> CreatedPage:
-        title_prop = self._resolve_title_property(database_id)
+        meta = self._resolve_db_meta(database_id)
+        parent: dict[str, str] = (
+            {"data_source_id": meta.data_source_id}
+            if meta.is_multi_source and meta.data_source_id
+            else {"database_id": database_id}
+        )
         try:
             resp = self._client.pages.create(
-                parent={"database_id": database_id},
+                parent=parent,
                 properties={
-                    title_prop: {
+                    meta.title_property: {
                         "title": [{"type": "text", "text": {"content": title}}]
                     }
                 },
@@ -161,12 +203,21 @@ class NotionAPI:
         return CreatedPage(id=resp["id"], url=resp["url"])
 
     def list_recent_pages(self, *, database_id: str, page_size: int = 10) -> list[PageRef]:
+        meta = self._resolve_db_meta(database_id)
+        sorts = [{"timestamp": "created_time", "direction": "descending"}]
         try:
-            resp = self._client.databases.query(
-                database_id=database_id,
-                page_size=page_size,
-                sorts=[{"timestamp": "created_time", "direction": "descending"}],
-            )
+            if meta.is_multi_source and meta.data_source_id:
+                resp = self._client.request(
+                    path=f"data_sources/{meta.data_source_id}/query",
+                    method="POST",
+                    body={"page_size": page_size, "sorts": sorts},
+                )
+            else:
+                resp = self._client.databases.query(
+                    database_id=database_id,
+                    page_size=page_size,
+                    sorts=sorts,
+                )
         except (APIResponseError, RequestTimeoutError) as e:
             raise _translate(e) from e
         return [
@@ -199,6 +250,13 @@ class NotionAPI:
         return all_blocks
 
     def search_in_database(self, *, database_id: str, query: str) -> list[PageRef]:
+        meta = self._resolve_db_meta(database_id)
+        if meta.is_multi_source and meta.data_source_id:
+            target_parent_type = "data_source_id"
+            target_parent_id = meta.data_source_id
+        else:
+            target_parent_type = "database_id"
+            target_parent_id = database_id
         results: list[PageRef] = []
         cursor: str | None = None
         while True:
@@ -214,9 +272,9 @@ class NotionAPI:
                 raise _translate(e) from e
             for p in resp.get("results", []):
                 parent = p.get("parent", {})
-                if parent.get("type") != "database_id":
+                if parent.get("type") != target_parent_type:
                     continue
-                if parent.get("database_id") != database_id:
+                if parent.get(target_parent_type) != target_parent_id:
                     continue
                 results.append(
                     PageRef(

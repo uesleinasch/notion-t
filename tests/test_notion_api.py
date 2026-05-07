@@ -118,6 +118,99 @@ def test_create_page_caches_title_property_lookup():
     assert client.databases.retrieve.call_count == 1
 
 
+def test_create_page_handles_multi_source_database():
+    """New Notion DBs return data_sources[] with no top-level properties."""
+    client = MagicMock()
+    client.databases.retrieve.return_value = {
+        "object": "database",
+        "data_sources": [{"id": "ds1", "name": "Quick Notes"}],
+    }
+    client.request.return_value = {
+        "properties": {"Title": {"type": "title"}}
+    }
+    client.pages.create.return_value = {"id": "p1", "url": "u"}
+    api = make_api(client)
+
+    api.create_page(database_id="db1", title="hello", blocks=[])
+
+    # Data source schema fetched
+    client.request.assert_called_once_with(path="data_sources/ds1", method="GET")
+    # Page parent uses data_source_id (not database_id)
+    args = client.pages.create.call_args.kwargs
+    assert args["parent"] == {"data_source_id": "ds1"}
+    assert args["properties"]["Title"]["title"][0]["text"]["content"] == "hello"
+
+
+def test_list_recent_pages_uses_data_source_query_for_multi_source():
+    client = MagicMock()
+    client.databases.retrieve.return_value = {
+        "object": "database",
+        "data_sources": [{"id": "ds1", "name": "Quick Notes"}],
+    }
+    # First request: schema. Second request: query.
+    client.request.side_effect = [
+        {"properties": {"Name": {"type": "title"}}},
+        {"results": [
+            {
+                "id": "p1",
+                "url": "u",
+                "created_time": "2026-05-07T10:00:00Z",
+                "properties": {"Name": {"type": "title", "title": [{"plain_text": "A"}]}},
+            }
+        ]},
+    ]
+    api = make_api(client)
+
+    refs = api.list_recent_pages(database_id="db1", page_size=5)
+
+    assert len(refs) == 1 and refs[0].title == "A"
+    second_call = client.request.call_args_list[1]
+    assert second_call.kwargs["path"] == "data_sources/ds1/query"
+    assert second_call.kwargs["method"] == "POST"
+    assert second_call.kwargs["body"]["page_size"] == 5
+    # Classic query endpoint NOT used
+    client.databases.query.assert_not_called()
+
+
+def test_search_filters_by_data_source_for_multi_source():
+    client = MagicMock()
+    client.databases.retrieve.return_value = {
+        "object": "database",
+        "data_sources": [{"id": "ds1", "name": "x"}],
+    }
+    client.request.return_value = {"properties": {"T": {"type": "title"}}}
+    client.search.return_value = {
+        "results": [
+            {
+                "id": "p1",
+                "object": "page",
+                "url": "u1",
+                "parent": {"type": "data_source_id", "data_source_id": "ds1"},
+                "properties": {"T": {"type": "title", "title": [{"plain_text": "match"}]}},
+            },
+            {
+                "id": "p2",
+                "object": "page",
+                "url": "u2",
+                "parent": {"type": "data_source_id", "data_source_id": "OTHER"},
+                "properties": {"T": {"type": "title", "title": [{"plain_text": "miss"}]}},
+            },
+            {
+                "id": "p3",
+                "object": "page",
+                "url": "u3",
+                "parent": {"type": "database_id", "database_id": "db1"},  # classic-shaped result
+                "properties": {"T": {"type": "title", "title": [{"plain_text": "ignore"}]}},
+            },
+        ]
+    }
+    api = make_api(client)
+
+    refs = api.search_in_database(database_id="db1", query="x")
+
+    assert [r.id for r in refs] == ["p1"]
+
+
 def test_create_page_raises_when_database_has_no_title_property():
     client = MagicMock()
     client.databases.retrieve.return_value = {
@@ -130,6 +223,9 @@ def test_create_page_raises_when_database_has_no_title_property():
 
 def test_query_database_returns_page_refs():
     client = MagicMock()
+    client.databases.retrieve.return_value = {
+        "properties": {"Title": {"type": "title"}}
+    }
     client.databases.query.return_value = {
         "results": [
             {
@@ -161,6 +257,9 @@ def test_query_database_returns_page_refs():
 def test_extract_title_finds_property_by_type_not_name():
     """A DB with title prop named 'Tarefa' (not 'Title') should still resolve."""
     client = MagicMock()
+    client.databases.retrieve.return_value = {
+        "properties": {"Tarefa": {"type": "title"}}
+    }
     client.databases.query.return_value = {
         "results": [
             {
@@ -195,6 +294,9 @@ def test_get_page_blocks_paginates():
 
 def test_search_filters_by_database():
     client = MagicMock()
+    client.databases.retrieve.return_value = {
+        "properties": {"Title": {"type": "title"}}
+    }
     client.search.return_value = {
         "results": [
             {
