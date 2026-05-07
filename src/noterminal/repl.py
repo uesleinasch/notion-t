@@ -29,18 +29,19 @@ class State:
 
 def _default_line_source(prompt: str) -> str:
     # Lazy import keeps prompt_toolkit out of the test path.
-    from prompt_toolkit import PromptSession
-    from prompt_toolkit.completion import WordCompleter
-    from prompt_toolkit.history import FileHistory
-    import os
-
-    histfile = os.path.expanduser("~/.local/share/noterminal/history")
-    os.makedirs(os.path.dirname(histfile), exist_ok=True)
-    completer = WordCompleter(
-        ["new", "list", "open", "search", "setup", "help", "exit", "quit"],
-        ignore_case=True,
-    )
     if not hasattr(_default_line_source, "_session"):
+        import os
+
+        from prompt_toolkit import PromptSession
+        from prompt_toolkit.completion import WordCompleter
+        from prompt_toolkit.history import FileHistory
+
+        histfile = os.path.expanduser("~/.local/share/noterminal/history")
+        os.makedirs(os.path.dirname(histfile), exist_ok=True)
+        completer = WordCompleter(
+            ["new", "list", "open", "search", "setup", "help", "exit", "quit"],
+            ignore_case=True,
+        )
         _default_line_source._session = PromptSession(
             history=FileHistory(histfile), completer=completer
         )

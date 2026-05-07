@@ -73,3 +73,59 @@ def test_repl_search_updates_last_listing():
     lines = iter(["search hi", "exit"])
     repl.run(state, line_source=lambda prompt: next(lines))
     assert state.last_listing == refs
+
+
+def test_repl_setup_sets_flag_and_exits():
+    api = MagicMock()
+    console = FakeConsole()
+    state = repl.State(api=api, config=_cfg(), console=console, last_listing=[])
+
+    lines = iter(["setup"])
+    repl.run(state, line_source=lambda prompt: next(lines))
+    assert state.setup_requested is True
+
+
+def test_repl_open_without_arg_prints_usage():
+    api = MagicMock()
+    console = FakeConsole()
+    state = repl.State(api=api, config=_cfg(), console=console, last_listing=[])
+
+    lines = iter(["open", "exit"])
+    repl.run(state, line_source=lambda prompt: next(lines))
+    flat = "\n".join(console.printed).lower()
+    assert "uso" in flat and "open" in flat
+
+
+def test_repl_search_without_arg_prints_usage():
+    api = MagicMock()
+    console = FakeConsole()
+    state = repl.State(api=api, config=_cfg(), console=console, last_listing=[])
+
+    lines = iter(["search", "exit"])
+    repl.run(state, line_source=lambda prompt: next(lines))
+    flat = "\n".join(console.printed).lower()
+    assert "uso" in flat and "search" in flat
+
+
+def test_repl_notion_error_in_list_is_caught():
+    from noterminal.notion_api import NetworkError
+    api = MagicMock()
+    api.list_recent_pages.side_effect = NetworkError("offline")
+    console = FakeConsole()
+    state = repl.State(api=api, config=_cfg(), console=console, last_listing=[])
+
+    lines = iter(["list", "exit"])
+    repl.run(state, line_source=lambda prompt: next(lines))
+    flat = "\n".join(console.printed).lower()
+    assert "erro" in flat and "offline" in flat
+
+
+def test_repl_empty_line_continues_loop():
+    api = MagicMock()
+    console = FakeConsole()
+    state = repl.State(api=api, config=_cfg(), console=console, last_listing=[])
+
+    lines = iter(["", "   ", "exit"])
+    repl.run(state, line_source=lambda prompt: next(lines))
+    # If the empty/whitespace lines didn't continue, we'd exit before consuming "exit"
+    # and the iter would have raised StopIteration instead of completing.
