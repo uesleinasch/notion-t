@@ -60,6 +60,7 @@ class _DBMeta:
 
 
 _CREATED_DATE_NAMES = {"created", "criado", "data", "date", "created at", "created time"}
+DEFAULT_DATE_PROP_NAME = "Criado"
 
 
 def _find_creation_date_prop(properties: dict[str, Any]) -> str | None:
@@ -207,8 +208,28 @@ class NotionAPI:
             raise _translate(e) from e
         return resp["id"]
 
-    def create_page(self, *, database_id: str, title: str, blocks: list[dict]) -> CreatedPage:
+    def _ensure_date_property(self, database_id: str) -> _DBMeta:
+        """Add a default `date` property to the schema if none exists."""
         meta = self._resolve_db_meta(database_id)
+        if meta.date_property:
+            return meta
+        body = {"properties": {DEFAULT_DATE_PROP_NAME: {"date": {}}}}
+        try:
+            if meta.is_multi_source and meta.data_source_id:
+                self._client.request(
+                    path=f"data_sources/{meta.data_source_id}",
+                    method="PATCH",
+                    body=body,
+                )
+            else:
+                self._client.databases.update(database_id=database_id, **body)
+        except (APIResponseError, RequestTimeoutError) as e:
+            raise _translate(e) from e
+        self._db_meta_cache.pop(database_id, None)
+        return self._resolve_db_meta(database_id)
+
+    def create_page(self, *, database_id: str, title: str, blocks: list[dict]) -> CreatedPage:
+        meta = self._ensure_date_property(database_id)
         parent: dict[str, str] = (
             {"data_source_id": meta.data_source_id}
             if meta.is_multi_source and meta.data_source_id

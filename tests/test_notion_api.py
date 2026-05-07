@@ -106,8 +106,12 @@ def test_create_page_uses_actual_title_property_name():
 
 def test_create_page_caches_title_property_lookup():
     client = MagicMock()
+    # Include a date prop so auto-add doesn't run and bust the cache.
     client.databases.retrieve.return_value = {
-        "properties": {"Tarefa": {"type": "title"}}
+        "properties": {
+            "Tarefa": {"type": "title"},
+            "Criado": {"type": "date"},
+        }
     }
     client.pages.create.return_value = {"id": "p1", "url": "u"}
     api = make_api(client)
@@ -157,6 +161,61 @@ def test_create_page_skips_unrecognized_date_property_names():
     assert "Due" not in args["properties"]
 
 
+def test_create_page_auto_adds_date_property_when_missing_classic():
+    """When the classic DB has no date prop, create_page must add 'Criado' first."""
+    client = MagicMock()
+    # First retrieve → no date prop. Second (after cache bust) → has it.
+    client.databases.retrieve.side_effect = [
+        {"properties": {"Title": {"type": "title"}}},
+        {"properties": {"Title": {"type": "title"}, "Criado": {"type": "date"}}},
+    ]
+    client.pages.create.return_value = {"id": "p1", "url": "u"}
+    api = make_api(client)
+
+    api.create_page(database_id="db1", title="x", blocks=[])
+
+    # Schema was patched with the new property
+    client.databases.update.assert_called_once_with(
+        database_id="db1",
+        properties={"Criado": {"date": {}}},
+    )
+    # And the page was created with the new prop populated
+    args = client.pages.create.call_args.kwargs
+    assert "Criado" in args["properties"]
+    assert "start" in args["properties"]["Criado"]["date"]
+
+
+def test_create_page_auto_adds_date_property_when_missing_multi_source():
+    client = MagicMock()
+    # databases.retrieve → multi-source shell, called twice (cache busted after patch)
+    client.databases.retrieve.side_effect = [
+        {"object": "database", "data_sources": [{"id": "ds1"}]},
+        {"object": "database", "data_sources": [{"id": "ds1"}]},
+    ]
+    # Sequence of `request` calls: GET ds (no date), PATCH ds, GET ds (with date)
+    client.request.side_effect = [
+        {"properties": {"Title": {"type": "title"}}},
+        {"object": "data_source", "id": "ds1"},
+        {"properties": {"Title": {"type": "title"}, "Criado": {"type": "date"}}},
+    ]
+    client.pages.create.return_value = {"id": "p1", "url": "u"}
+    api = make_api(client)
+
+    api.create_page(database_id="db1", title="x", blocks=[])
+
+    # PATCH was sent to the data source endpoint
+    patch_call = client.request.call_args_list[1]
+    assert patch_call.kwargs == {
+        "path": "data_sources/ds1",
+        "method": "PATCH",
+        "body": {"properties": {"Criado": {"date": {}}}},
+    }
+    # Page parent uses data_source_id and date prop is populated
+    args = client.pages.create.call_args.kwargs
+    assert args["parent"] == {"data_source_id": "ds1"}
+    assert "Criado" in args["properties"]
+
+
 def test_create_page_skips_created_time_property():
     """Notion auto-fills `created_time` props; we must not try to set them."""
     client = MagicMock()
@@ -182,15 +241,19 @@ def test_create_page_handles_multi_source_database():
         "object": "database",
         "data_sources": [{"id": "ds1", "name": "Quick Notes"}],
     }
+    # Include a date prop so auto-add doesn't run.
     client.request.return_value = {
-        "properties": {"Title": {"type": "title"}}
+        "properties": {
+            "Title": {"type": "title"},
+            "Criado": {"type": "date"},
+        }
     }
     client.pages.create.return_value = {"id": "p1", "url": "u"}
     api = make_api(client)
 
     api.create_page(database_id="db1", title="hello", blocks=[])
 
-    # Data source schema fetched
+    # Data source schema fetched (single GET, no PATCH)
     client.request.assert_called_once_with(path="data_sources/ds1", method="GET")
     # Page parent uses data_source_id (not database_id)
     args = client.pages.create.call_args.kwargs
