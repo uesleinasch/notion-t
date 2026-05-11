@@ -1,12 +1,15 @@
 """Interactive REPL — prompt, dispatch, shared session state."""
 from __future__ import annotations
 
+import dataclasses
 import shlex
 from dataclasses import dataclass, field
 from typing import Callable, Protocol
 
+from . import config as config_mod
 from .commands import delete as delete_cmd
 from .commands import edit as edit_cmd
+from .commands import editor as editor_cmd
 from .commands import help as help_cmd
 from .commands import list as list_cmd
 from .commands import new as new_cmd
@@ -43,7 +46,8 @@ def _default_line_source(prompt: str) -> str:
         completer = WordCompleter(
             [
                 "new", "list", "open", "edit", "delete", "rm",
-                "search", "setup", "clear", "cls", "help", "exit", "quit",
+                "search", "editor", "setup", "clear", "cls", "help",
+                "exit", "quit",
             ],
             ignore_case=True,
         )
@@ -171,6 +175,24 @@ def _dispatch(state: State, line: str) -> bool:
             )
         except NotionError as e:
             state.console.print(f"[red]erro:[/red] {e}")
+        return False
+    if cmd == "editor":
+        new_cmd_str = editor_cmd.run(
+            current_command=state.config.editor_command,
+            args=args,
+            console=state.console,
+        )
+        if new_cmd_str is not None and new_cmd_str != state.config.editor_command:
+            new_cfg = dataclasses.replace(state.config, editor_command=new_cmd_str)
+            try:
+                config_mod.save(new_cfg)
+            except OSError as e:
+                state.console.print(f"[red]falha ao salvar config:[/red] {e}")
+                return False
+            state.config = new_cfg
+            state.console.print(
+                f"[green]✓[/green] editor configurado: [cyan]{new_cmd_str}[/cyan]"
+            )
         return False
     if cmd == "setup":
         state.setup_requested = True

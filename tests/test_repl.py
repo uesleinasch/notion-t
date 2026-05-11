@@ -191,3 +191,55 @@ def test_repl_numeric_shortcut_without_listing_shows_hint():
     flat = "\n".join(console.printed).lower()
     assert "list" in flat or "search" in flat
     api.get_page_blocks.assert_not_called()
+
+
+def test_repl_editor_persists_new_choice(monkeypatch, tmp_path):
+    from noterminal import config as config_mod
+    from noterminal.commands import editor as editor_cmd
+
+    # Pretend everything is installed so editor cmd just returns a value.
+    monkeypatch.setattr(editor_cmd, "_is_installed", lambda ed: True)
+    monkeypatch.setattr(config_mod, "config_path", lambda: tmp_path / "config.toml")
+
+    saved = {}
+
+    def fake_save(cfg):
+        saved["cfg"] = cfg
+
+    monkeypatch.setattr(config_mod, "save", fake_save)
+
+    api = MagicMock()
+    console = FakeConsole()
+    state = repl.State(api=api, config=_cfg(), console=console, last_listing=[])
+
+    lines = iter(["editor vim", "exit"])
+    repl.run(state, line_source=lambda prompt: next(lines))
+
+    assert saved["cfg"].editor_command == "vim"
+    assert state.config.editor_command == "vim"
+
+
+def test_repl_editor_no_change_does_not_save(monkeypatch):
+    from noterminal import config as config_mod
+    from noterminal.commands import editor as editor_cmd
+
+    monkeypatch.setattr(editor_cmd, "_is_installed", lambda ed: True)
+
+    saved = {"called": False}
+
+    def fake_save(cfg):
+        saved["called"] = True
+
+    monkeypatch.setattr(config_mod, "save", fake_save)
+
+    api = MagicMock()
+    console = FakeConsole()
+    cfg = Config(token="t", workspace="w", database_id="db1",
+                 editor_command="nano", list_size=10)
+    state = repl.State(api=api, config=cfg, console=console, last_listing=[])
+
+    lines = iter(["editor nano", "exit"])
+    repl.run(state, line_source=lambda prompt: next(lines))
+
+    assert saved["called"] is False
+    assert state.config.editor_command == "nano"
